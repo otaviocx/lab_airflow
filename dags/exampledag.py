@@ -28,13 +28,20 @@ import requests
 # Define the basic parameters of the DAG, like schedule and start_date
 @dag(
     start_date=datetime(2025, 4, 22),
-    schedule="@daily",
+    schedule="0 20 * * *",
     doc_md=__doc__,
     default_args={"owner": "Astro", "retries": 3},
     tags=["example"],
 )
 def example_astronauts():
     # Define tasks
+    @task  # Define that this task updates the `current_astronauts` Asset
+    def get_configs() -> list[dict]:
+        return {
+            "greeting": "Hello! :)",
+            "message": "is currently in space flying on the"
+        }
+
     @task(
         # Define an asset outlet for the task. This can be used to schedule downstream DAGs when this task has run.
         outlets=[Asset("current_astronauts")]
@@ -75,24 +82,26 @@ def example_astronauts():
         return list_of_people_in_space
 
     @task
-    def print_astronaut_craft(greeting: str, person_in_space: dict) -> None:
-        """
-        This task creates a print statement with the name of an
-        Astronaut in space and the craft they are flying on from
-        the API request results of the previous task, along with a
-        greeting which is hard-coded in this example.
-        """
-        craft = person_in_space["craft"]
-        name = person_in_space["name"]
+    def format_print(persons: list[dict]) -> None:
+        configs = get_configs()
+        messages = []
+        for person in persons:
+            messages.append(f"{configs['greeting']} {person['name']} {configs['message']} {person['craft']}!")
+        return messages
 
-        print(f"{name} is currently in space flying on the {craft}! {greeting}")
+    @task
+    def print_astronaut_craft(greeting: str, message: str) -> None:
+        print(f"{greeting} {message}")
 
     # Use dynamic task mapping to run the print_astronaut_craft task for each
     # Astronaut in space
-    print_astronaut_craft.partial(greeting="Hello! :)").expand(
-        person_in_space=get_astronauts()  # Define dependencies using TaskFlow API syntax
-    )
+    
+    ## print_astronaut_craft.override()(greeting="Hello! :)", person_in_space=person) for person in get_astronauts()
 
+    
+    print_astronaut_craft.partial(greeting="Hello! :)").expand(
+         message=format_print(persons=get_astronauts())  # Define dependencies using TaskFlow API syntax
+    )
 
 # Instantiate the DAG
 example_astronauts()
